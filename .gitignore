@@ -1,0 +1,6 @@
+# Build output (created by PyInstaller / GitHub Actions)
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
