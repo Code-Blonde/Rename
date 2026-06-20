@@ -51,7 +51,7 @@ class RenameApp:
 
         root.title(APP_TITLE)
         root.configure(bg=BG)
-        root.minsize(860, 640)
+        root.minsize(860, 720)
 
         self._build_styles()
         self._build_header()
@@ -138,31 +138,70 @@ class RenameApp:
         opts = tk.Frame(card2, bg=CARD)
         opts.pack(fill="x", padx=16, pady=(0, 14))
 
+        # Новое общее имя для всех файлов (необязательно)
+        self.newbase_var = tk.StringVar()
+        self._labeled_entry(opts, "Новое имя для всех:", self.newbase_var, 0)
+        tk.Label(opts, text="например Track. Оставьте пустым, чтобы сохранить имена.",
+                 font=("Segoe UI", 9), bg=CARD, fg=MUTED).grid(
+                     row=1, column=1, sticky="w", padx=(8, 0))
+
         # Найти и заменить
         self.find_var = tk.StringVar()
         self.replace_var = tk.StringVar()
-        self._labeled_entry(opts, "Найти текст:", self.find_var, 0)
-        self._labeled_entry(opts, "Заменить на:", self.replace_var, 1)
+        self._labeled_entry(opts, "или найти текст:", self.find_var, 2)
+        self._labeled_entry(opts, "заменить на:", self.replace_var, 3)
 
         # Префикс и суффикс
         self.prefix_var = tk.StringVar()
         self.suffix_var = tk.StringVar()
-        self._labeled_entry(opts, "Добавить в начало:", self.prefix_var, 2)
-        self._labeled_entry(opts, "Добавить в конец:", self.suffix_var, 3)
+        self._labeled_entry(opts, "добавить в начало:", self.prefix_var, 4)
+        self._labeled_entry(opts, "добавить в конец:", self.suffix_var, 5)
 
         # Нумерация
         numrow = tk.Frame(opts, bg=CARD)
-        numrow.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        numrow.grid(row=6, column=0, columnspan=2, sticky="w", pady=(10, 0))
         self.number_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(numrow, text="Пронумеровать файлы по порядку (1, 2, 3 ...)",
+        tk.Checkbutton(numrow, text="Добавить нумерацию (1, 2, 3 ...)",
                        variable=self.number_var, bg=CARD, fg=TEXT,
                        activebackground=CARD, font=("Segoe UI", 11),
                        selectcolor="#cfe8d4", cursor="hand2",
                        command=self._refresh_preview).pack(side="left")
 
+        # Настройки нумерации
+        numopts = tk.Frame(opts, bg=CARD)
+        numopts.grid(row=7, column=0, columnspan=2, sticky="w", pady=(4, 0), padx=(24, 0))
+
+        tk.Label(numopts, text="Где:", font=("Segoe UI", 10), bg=CARD,
+                 fg=TEXT).pack(side="left")
+        self.number_pos_var = tk.StringVar(value="в конце")
+        pos_menu = ttk.Combobox(numopts, textvariable=self.number_pos_var, width=10,
+                                state="readonly", font=("Segoe UI", 10),
+                                values=["в конце", "в начале"])
+        pos_menu.pack(side="left", padx=(4, 14))
+        pos_menu.bind("<<ComboboxSelected>>", lambda e: self._refresh_preview())
+
+        tk.Label(numopts, text="Разделитель:", font=("Segoe UI", 10), bg=CARD,
+                 fg=TEXT).pack(side="left")
+        self.sep_var = tk.StringVar(value="_")
+        tk.Entry(numopts, textvariable=self.sep_var, font=("Segoe UI", 10), width=5,
+                 relief="solid", bd=1).pack(side="left", padx=(4, 14))
+
+        tk.Label(numopts, text="Начать с:", font=("Segoe UI", 10), bg=CARD,
+                 fg=TEXT).pack(side="left")
+        self.start_var = tk.StringVar(value="1")
+        tk.Entry(numopts, textvariable=self.start_var, font=("Segoe UI", 10), width=5,
+                 relief="solid", bd=1).pack(side="left", padx=(4, 14))
+
+        self.pad_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(numopts, text="ведущие нули (01, 02)",
+                       variable=self.pad_var, bg=CARD, fg=TEXT,
+                       activebackground=CARD, font=("Segoe UI", 10),
+                       selectcolor="#cfe8d4", cursor="hand2",
+                       command=self._refresh_preview).pack(side="left")
+
         # Регистр букв
         caserow = tk.Frame(opts, bg=CARD)
-        caserow.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        caserow.grid(row=8, column=0, columnspan=2, sticky="w", pady=(10, 0))
         tk.Label(caserow, text="Изменить буквы на:", font=("Segoe UI", 11),
                  bg=CARD, fg=TEXT).pack(side="left")
         self.case_var = tk.StringVar(value="Оставить как есть")
@@ -176,7 +215,8 @@ class RenameApp:
         case_menu.bind("<<ComboboxSelected>>", lambda e: self._refresh_preview())
 
         # Живое обновление при вводе
-        for var in (self.find_var, self.replace_var, self.prefix_var, self.suffix_var):
+        for var in (self.newbase_var, self.find_var, self.replace_var,
+                    self.prefix_var, self.suffix_var, self.sep_var, self.start_var):
             var.trace_add("write", lambda *a: self._refresh_preview())
 
     def _labeled_entry(self, parent, label, var, row):
@@ -264,10 +304,15 @@ class RenameApp:
     def _new_name_for(self, name, index, total):
         base, ext = os.path.splitext(name)
 
-        # Найти и заменить (только в имени, расширение .xxx не трогаем)
-        find = self.find_var.get()
-        if find:
-            base = base.replace(find, self.replace_var.get())
+        newbase = self.newbase_var.get().strip()
+        if newbase:
+            # Дать всем файлам одно общее имя (номер ниже сделает их разными)
+            base = newbase
+        else:
+            # Найти и заменить (только в имени, расширение .xxx не трогаем)
+            find = self.find_var.get()
+            if find:
+                base = base.replace(find, self.replace_var.get())
 
         # Изменение регистра
         mode = self.case_var.get()
@@ -281,11 +326,24 @@ class RenameApp:
         # Префикс и суффикс
         base = self.prefix_var.get() + base + self.suffix_var.get()
 
-        # Нумерация с ведущими нулями, чтобы файлы сортировались по порядку
+        # Нумерация
         if self.number_var.get():
-            width = max(2, len(str(total)))
-            number = str(index + 1).zfill(width)
-            base = number + " - " + base
+            try:
+                start = int(self.start_var.get())
+            except ValueError:
+                start = 1
+            number = start + index
+            sep = self.sep_var.get()
+            if self.pad_var.get():
+                last = start + max(total - 1, 0)
+                width = max(2, len(str(last)))
+                num_str = str(number).zfill(width)
+            else:
+                num_str = str(number)
+            if self.number_pos_var.get() == "в начале":
+                base = num_str + sep + base
+            else:
+                base = base + sep + num_str
 
         return base + ext
 
